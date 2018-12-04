@@ -1,0 +1,38 @@
+html, body {
+  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+  margin: 0;
+  width: 100%;
+}
+
+svg {
+  font: 8px sans-serif;
+}
+
+rect {
+  stroke: #fff;
+  stroke-width: 0.5px;
+}
+
+#hierarchy1 {
+  border-right: 1px solid gray;
+  float: left;
+  height: 100%;
+  width: calc(50% - 3px);
+}
+
+#hierarchy2 {
+  display: inline-block;
+  height: 100%;
+  width: 50%;
+}
+
+#current-node {
+  box-sizing: border-box;
+  left: 0;
+  padding: 16px;
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  width: 50%;
+}

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Linked Icicle and Treemap Visualization</title>
+
+  <script lang="javascript" src="js/jquery-3.1.0.min.js"></script>
+  <script lang="javascript" src="js/d3.v4.min.js"></script>
+  <script lang="javascript" src="js/flare.js"></script>
+  <link rel="stylesheet" href="css/hierarchy.css">
+
+  <style>
+    html, body {
+      font-family: Arial, Helvetica, sans-serif;
+      height: 100%;
+      margin: 0;
+      width: 100%;
+    }
+
+    svg {
+      font: 8px sans-serif;
+    }
+
+    rect {
+      stroke: #fff;
+      stroke-width: 0.5px;
+    }
+
+    #hierarchy1 {
+      border-right: 1px solid gray;
+      float: left;
+      height: 100%;
+      width: calc(50% - 3px);
+    }
+
+    #hierarchy2 {
+      display: inline-block;
+      height: 100%;
+      width: 50%;
+    }
+
+    #current-path {
+      box-sizing: border-box;
+      left: 0;
+      padding: 16px;
+      pointer-events: none;
+      position: fixed;
+      top: 0;
+      width: 50%;
+    }
+  </style>
+
+</head>
+<body>
+
+  <div id="hierarchy1"></div>
+  <div id="hierarchy2"></div>
+
+  <span id="current-path">Linked Icicle and Treemap Visualization</span>
+
+  <script>
+  /*
+   * Name: Selena Groh
+   */
+
+  (function () {
+
+  var fader = function(color) { return d3.interpolateRgb(color, "#fff")(0.1); },
+      // sort schemeCategory20 colors by hue
+      color = d3.scaleOrdinal(d3.schemeCategory20.map(fader).sort(function (a, b) { return d3.hsl(a).h - d3.hsl(b).h;})),
+      format = d3.format(",d");
+
+  var root = d3.hierarchy(imdumb)
+      .sum(sumBySize)
+      .eachBefore(function(d) { d.data.id = (d.parent ? d.parent.data.id + "-" : "") + d.data.name; })
+      .sort(function(a, b) { return b.height - a.height || b.value - a.value; });
+
+  function loadTreemap(svg, parentId) {
+    svg.selectAll("*").remove();
+
+    var parent = d3.select("#" + parentId),
+        parentWidth = parent.node().clientWidth,
+        parentHeight = parent.node().clientHeight;
+
+    svg.attr("width", parentWidth)
+       .attr("height", parentHeight);
+
+    var treemap = d3.treemap()
+        .tile(d3.treemapResquarify)
+        .size([parentWidth, parentHeight])
+        .round(true)
+        .paddingInner(0);
+
+    treemap(root);
+
+    var cell = svg.selectAll("g")
+      .data(root.leaves())
+      .enter().append("g")
+        .attr("transform", function(d) { return "translate(" + d.x0 + "," + d.y0 + ")"; })
+        .on("mouseover", handleMouseover)
+        .on("mouseout", handleMouseout)
+        .on("click", handleClick);
+
+    cell.append("rect")
+        .attr("id", function(d) { return treemapPrefix + d.data.id; })
+        .attr("width", function(d) { return d.x1 - d.x0; })
+        .attr("height", function(d) { return d.y1 - d.y0; })
+        .attr("fill", function(d) { return baseColor(d); });
+
+    cell.append("clipPath")
+        .attr("id", function(d) { return "clip-" + d.data.id; })
+      .append("use")
+        .attr("xlink:href", function(d) { return "#" + treemapPrefix + d.data.id; });
+
+    cell.append("text")
+        .attr("clip-path", function(d) { return "url(#clip-" + d.data.id + ")"; })
+      .selectAll("tspan")
+        .data(function(d) { return d.data.name.split(/(?=[A-Z][^A-Z])/g); })
+      .enter().append("tspan")
+        .attr("x", 2)
+        .attr("y", function(d, i) { return 10 + i * 10; })
+        .text(function(d) { return d; });
+
+    cell.append("title")
+        .text(function(d) { return d.data.id + "\n" + format(d.value); });
+
+    d3.selectAll("input")
+        .data([sumBySize, sumByCount], function(d) { return d ? d.name : this.value; });
+  }
+
+  function loadIcicle(svg, parentId) {
+    svg.selectAll("*").remove();
+
+    var parent = d3.select("#" + parentId),
+        parentWidth = parent.node().clientWidth,
+        parentHeight = parent.node().clientHeight;
+
+    svg.attr("width", parentWidth)
+       .attr("height", parentHeight);
+
+    var partition = d3.partition()
+        .size([parentWidth, parentHeight])
+        .padding(0)
+        .round(true);
+
+    var rect = svg.selectAll("rect");
+
+    rect = rect
+        .data(partition(root).descendants())
+        .enter().append("rect")
+        .attr("id", function(d) { return iciclePrefix + d.data.id; })
+        .attr("x", function(d) { return d.x0; })
+        .attr("y", function(d) { return d.y0; })
+        .attr("width", function(d) { return d.x1 - d.x0; })
+        .attr("height", function(d) { return d.y1 - d.y0; })
+        .attr("fill", function(d) { return baseColor(d); })
+        .on("mouseover", handleMouseover)
+        .on("mouseout", handleMouseout)
+        .on("click", handleClick);
+  }
+
+  function handleMouseover(d) {
+    if (focused) { return; }
+    highlightTreemapIciclePathFromNode(d);
+  }
+
+  function handleMouseout() {
+    if (focused) { return; }
+    resetCurrentPath();
+    resetNodeColors();
+  }
+
+  function handleClick(d, i) {
+    d3.event.stopPropagation();
+
+    if (focused && i == focusedNode) {
+      unfocus();
+      setCurrentPath(d);
+    } else {
+      focused = true;
+      focusedNode = i;
+      highlightTreemapIciclePathFromNode(d);
+    }
+  }
+
+  function highlightTreemapIciclePathFromNode(d) {
+    lightenNodeColors();
+    setCurrentPath(d);
+
+    var descendants = d.descendants(),
+        ancestors   = d.ancestors();
+
+    var descendantNode;
+    for (var i = 0; i < descendants.length; i++) {
+      descendantNode = d3.select("#" + treemapPrefix + descendants[i].data.id);
+      descendantNode.attr("fill", baseColor(descendants[i]));
+    }
+
+    var ancestorNode;
+    for (var j = 0; j < ancestors.length; j++) {
+      ancestorNode = d3.select("#" + iciclePrefix + ancestors[j].data.id);
+      ancestorNode.attr("fill", baseColor(ancestors[j]));
+    }
+  }
+
+  function setCurrentPath(d) {
+    d3.select("#" + currentPathId).html(d.data.id.replace(/-/g, ' > '));
+  }
+
+  function resetCurrentPath() {
+    d3.select("#" + currentPathId).html(baseCurrentPathText);
+  }
+
+  function unfocus() {
+    focused = false;
+    focusedNode = -1;
+    resetNodeColors();
+  }
+
+  function sumByCount(d) {
+    return d.children ? 0 : 1;
+  }
+
+  function sumBySize(d) {
+    return d.size;
+  }
+
+  function baseColor(d) {
+    return color((d.data.children ? d : d.parent).data.name);
+  }
+
+  function lightenNodeColors() {
+    d3.selectAll("rect").attr("fill", function(d) { return d3.interpolateRgb(baseColor(d), "#fff")(0.6); });
+  }
+
+  function resetNodeColors() {
+    d3.selectAll("rect").attr("fill", function(d) { return baseColor(d); });
+  }
+
+  var focused = false,
+      focusedNode = -1;
+
+  var currentPathId = "current-path",
+      baseCurrentPathText = d3.select("#" + currentPathId).html();
+
+  var treemapPrefix = "t-",
+      iciclePrefix = "i-";
+
+  var treemapParentId = "hierarchy2",
+      treemapSvg = d3.select("#" + treemapParentId).append("svg");
+
+  var icicleParentId = "hierarchy1",
+      icicleSvg = d3.select("#" + icicleParentId).append("svg");
+
+  d3.select("body").on("click", function() {
+    unfocus();
+    resetCurrentPath();
+  });
+
+  loadTreemap(treemapSvg, treemapParentId);
+  loadIcicle(icicleSvg, icicleParentId);
+
+  window.addEventListener('resize', function () {
+    loadTreemap(treemapSvg, treemapParentId);
+    loadIcicle(icicleSvg, icicleParentId);
+  });
+
+  })();
+
+  </script>
+</body>
+</html>
